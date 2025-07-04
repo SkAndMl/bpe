@@ -1,0 +1,10 @@
+[package]
+name = "bpe_rs"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+regex = "1"                # for chunk splitting
+serde = { version = "1", features = ["derive"] }  # for JSON loading
+serde_json = "1"
+anyhow = "1"
