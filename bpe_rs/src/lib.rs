@@ -1,4 +1,18 @@
 use std::collections::HashMap;
+use std::path::Path;
+use anyhow::{Result, Context};
+use regex::Regex;
+use std::{fs::File, io::BufReader};
+
+pub struct Tokenizer {
+    merges: HashMap<(u32, u32), u32>,
+    vocab: HashMap<u32, Vec<u8>>,
+
+    chunk_pat: Regex,
+    special_pat: Option<Regex>,
+    special_to_id: HashMap<String, u32>,
+    id_to_special: HashMap<u32, String>,
+}
 
 fn get_freq(byte_chunks: &[Vec<u32>]) -> HashMap<(u32, u32), usize>{
     let mut freq = HashMap::new();
@@ -35,17 +49,202 @@ fn merge(byte_chunks: &[Vec<u32>], pair: (u32, u32), new_id: u32) -> Vec<Vec<u32
 }
 
 fn build_vocab(merges: &HashMap<(u32, u32), u32>) -> HashMap<u32, Vec<u8>> {
-    let mut vocab = HashMap::new();
+    let mut vocab: HashMap<u32, Vec<u8>> = (0u32..=255)
+        .map(|b| (b, vec![b as u8]))
+        .collect();
 
-    for i in 0u32..=255 {
-        vocab.insert(i, vec![i as u8]);
-    }
+    // 1. collect (pair, id) into a Vec so we can sort
+    let mut sorted: Vec<(&(u32, u32), &u32)> = merges.iter().collect();
+    // 2. sort by id (same order Python used)
+    sorted.sort_by_key(|&(_, id)| *id);
 
-    for (&(tok0, tok1), &id) in merges {
-        let mut merged = vocab.get(&tok0).unwrap().clone();
-        merged.extend(vocab.get(&tok1).unwrap());
+    // 3. now build higher tokens in ascending order
+    for (&(tok0, tok1), &id) in sorted {
+        let mut merged = vocab.get(&tok0)
+                              .expect("tok0 missing")
+                              .clone();
+        merged.extend(
+            vocab.get(&tok1)
+                 .expect("tok1 missing")
+        );
         vocab.insert(id, merged);
     }
-
     vocab
+}
+
+
+
+pub fn train(filepath: &str, num_merges: u32, save_dir: &str)  -> Result<()> {
+    let text = std::fs::read_to_string(filepath)?;
+    let chunk_pat = Regex::new(r"'s|'re|'ll|'ve|'d|'t| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+").unwrap();
+    let mut merges: HashMap<(u32, u32), u32> = HashMap::new();
+    let mut byte_chunks: Vec<Vec<u32>>= chunk_pat
+                                .find_iter(&text)
+                                .map(|m| m.as_str().as_bytes().iter().map(|&b| b as u32).collect())
+                                .collect();
+
+    for i in 0..num_merges {
+        let freq = get_freq(&byte_chunks);
+        if freq.is_empty() {
+            break;
+        }
+        
+        let (&pair, _) = freq.iter().max_by_key(|(_, count)| *count).unwrap();
+        byte_chunks = merge(&byte_chunks, pair, 256+i);
+        merges.insert(pair, 256+i);
+    }
+
+    let vocab = build_vocab(&merges);
+
+    // safe files
+    std::fs::create_dir_all(save_dir)?;
+    let merge_path = Path::new(save_dir).join("merges.json");
+    let vocab_path = Path::new(save_dir).join("vocab.json");
+
+    let merge_json: HashMap<String, u32>= merges
+                                               .iter()
+                                               .map(|(&(a, b), &id)| (format!("{},{}", a, b), id))
+                                               .collect();
+    let vocab_json: HashMap<String, Vec<u8>> = vocab
+                                            .iter()
+                                            .map(|(&id, bytes)| (id.to_string(), bytes.clone()))
+                                            .collect();
+    serde_json::to_writer_pretty(std::fs::File::create(merge_path)?, &merge_json)?;
+    serde_json::to_writer_pretty(std::fs::File::create(vocab_path)?, &vocab_json)?;
+    Ok(())
+
+}
+
+
+impl Tokenizer {
+    pub fn new<P: AsRef<std::path::Path>>(tokenizer_dir: P, special_tokens: Option<Vec<&str>>) -> Result<Self> {
+        let dir = tokenizer_dir.as_ref();
+
+        // Load merges.json
+        let merge_path = dir.join("merges.json");
+        let merge_file = File::open(&merge_path).context("Failed to open merges.json")?;
+        let merge_json: HashMap<String, u32> = serde_json::from_reader(BufReader::new(merge_file))?;
+
+        let mut merges = HashMap::new();
+        for (pair_str, id) in merge_json {
+            let parts: Vec<u32> = pair_str
+                .split(',')
+                .map(|s| s.parse::<u32>().unwrap())
+                .collect();
+            merges.insert((parts[0], parts[1]), id);
+        }
+
+        // Load vocab.json
+        let vocab_path = dir.join("vocab.json");
+        let vocab_file = File::open(&vocab_path).context("Failed to open vocab.json")?;
+        let vocab_json: HashMap<String, Vec<u8>> = serde_json::from_reader(BufReader::new(vocab_file))?;
+        let vocab: HashMap<u32, Vec<u8>> = vocab_json
+            .into_iter()
+            .map(|(k, v)| (k.parse::<u32>().unwrap(), v))
+            .collect();
+
+        // Compile main regex
+        let chunk_pat = Regex::new(
+            r"'s|'re|'ll|'ve|'d|'t| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+"
+        ).unwrap();
+
+        // Handle special tokens
+        let mut special_pat = None;
+        let mut special_to_id = HashMap::new();
+        let mut id_to_special = HashMap::new();
+
+        if let Some(tokens) = special_tokens {
+            let base_id = vocab.len() as u32;
+            for (i, token) in tokens.iter().enumerate() {
+                let id = base_id + i as u32;
+                special_to_id.insert(token.to_string(), id);
+                id_to_special.insert(id, token.to_string());
+            }
+
+            let pattern = format!("({})", special_to_id.keys()
+                .map(|tok| regex::escape(tok))
+                .collect::<Vec<_>>()
+                .join("|"));
+            special_pat = Some(Regex::new(&pattern).unwrap());
+        }
+
+        Ok(Self {
+            merges,
+            vocab,
+            chunk_pat,
+            special_pat,
+            special_to_id,
+            id_to_special,
+        })
+    }
+}
+
+
+impl Tokenizer {
+    fn encode_ordinary(&self, text: &str) -> Vec<u32> {
+        let mut chunks: Vec<Vec<u32>> = self.chunk_pat
+            .find_iter(text)
+            .map(|m| m.as_str().as_bytes().iter().map(|&b| b as u32).collect())
+            .collect();
+
+        loop {
+            let freq = get_freq(&chunks);
+            if freq.is_empty() {
+                break;
+            }
+
+            let pair = freq
+                .iter()
+                .filter(|(p, _)| self.merges.contains_key(p))
+                .min_by_key(|(p, _)| self.merges.get(p).unwrap())
+                .map(|(p, _)| *p);
+
+            if let Some(pair) = pair {
+                let new_id = self.merges[&pair];
+                chunks = merge(&chunks, pair, new_id);
+            } else {
+                break;
+            }
+        }
+
+        chunks.into_iter().flatten().collect()
+    }
+
+    pub fn encode(&self, text: &str) -> Vec<u32> {
+        if let Some(special_pat) = &self.special_pat {
+            let mut tokens = Vec::new();
+            for chunk in special_pat.split(text) {
+                if self.special_to_id.contains_key(chunk) {
+                    tokens.push(self.special_to_id[chunk]);
+                } else {
+                    tokens.extend(self.encode_ordinary(chunk));
+                }
+            }
+            tokens
+        } else {
+            self.encode_ordinary(text)
+        }
+    }
+
+    pub fn decode(&self, tokens: &[u32]) -> String {
+        let mut result = String::new();
+        let mut buffer: Vec<u8> = Vec::new();
+
+        for &token in tokens {
+            if let Some(special) = self.id_to_special.get(&token) {
+                if let Ok(decoded) = String::from_utf8(buffer.clone()) {
+                    result.push_str(&decoded);
+                }
+                buffer.clear();
+                result.push_str(special);
+            } else if let Some(bytes) = self.vocab.get(&token) {
+                buffer.extend_from_slice(bytes);
+            }
+        }
+
+        if let Ok(decoded) = String::from_utf8(buffer) {
+            result.push_str(&decoded);
+        }
+        result
+    }
 }
