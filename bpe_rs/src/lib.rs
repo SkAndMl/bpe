@@ -211,19 +211,32 @@ impl Tokenizer {
     }
 
     pub fn encode(&self, text: &str) -> Vec<u32> {
-        if let Some(special_pat) = &self.special_pat {
-            let mut tokens = Vec::new();
-            for chunk in special_pat.split(text) {
-                if self.special_to_id.contains_key(chunk) {
-                    tokens.push(self.special_to_id[chunk]);
-                } else {
-                    tokens.extend(self.encode_ordinary(chunk));
-                }
-            }
-            tokens
-        } else {
-            self.encode_ordinary(text)
+        // No special tokens → ordinary encode
+        if self.special_pat.is_none() {
+            return self.encode_ordinary(text);
         }
+        let special_pat = self.special_pat.as_ref().unwrap();
+
+        let mut tokens = Vec::new();
+        let mut last = 0;
+
+        // Walk through every match (= special token)
+        for m in special_pat.find_iter(text) {
+            // 1) Encode text *before* the special token
+            if m.start() > last {
+                tokens.extend(self.encode_ordinary(&text[last..m.start()]));
+            }
+            // 2) Push the special-token ID itself
+            if let Some(&id) = self.special_to_id.get(m.as_str()) {
+                tokens.push(id);
+            }
+            last = m.end();
+        }
+        // 3) Encode any trailing text after the last special token
+        if last < text.len() {
+            tokens.extend(self.encode_ordinary(&text[last..]));
+        }
+        tokens
     }
 
     pub fn decode(&self, tokens: &[u32]) -> String {
@@ -247,4 +260,59 @@ impl Tokenizer {
         }
         result
     }
+}
+
+// ──────────────────────────────────────────────────────────────
+//             Python bindings (thin wrapper)
+// ──────────────────────────────────────────────────────────────
+use pyo3::prelude::*;
+#[pyclass(name = "Tokenizer")]
+struct PyTokenizer {
+    inner: Tokenizer,
+}
+
+#[pymethods]
+impl PyTokenizer {
+    /// Create from a tokenizer directory.
+    #[new]
+    fn new(tokenizer_dir: &str, special_tokens: Option<Vec<String>>) -> PyResult<Self> {
+        // convert Vec<String> → Vec<&str>
+        let specials = special_tokens
+            .as_ref()
+            .map(|v| v.iter().map(|s| s.as_str()).collect());
+        let tok = Tokenizer::new(tokenizer_dir, specials)
+            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+        Ok(Self { inner: tok })
+    }
+
+    /// Encode text into a list[int].
+    fn encode(&self, text: &str) -> Vec<u32> {
+        self.inner.encode(text)
+    }
+
+    /// Decode list[int] back to text.
+    fn decode(&self, tokens: Vec<u32>) -> String {
+        self.inner.decode(&tokens)
+    }
+
+    #[staticmethod]
+    fn train(filepath: &str, num_merges: u32, save_dir: &str) -> PyResult<()> {
+        crate::train(filepath, num_merges, save_dir)
+            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))
+    }
+}
+
+/// train_bpe(filepath, num_merges, save_dir)
+#[pyfunction]
+fn train_bpe(filepath: &str, num_merges: u32, save_dir: &str) -> PyResult<()> {
+    crate::train(filepath, num_merges, save_dir)
+        .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))
+}
+
+/// Python module definition: `import bpe_rs`
+#[pymodule]
+fn bpe_rs(_py: Python, m: &PyModule) -> PyResult<()> {
+    m.add_class::<PyTokenizer>()?;
+    m.add_function(wrap_pyfunction!(train_bpe, m)?)?;
+    Ok(())
 }
