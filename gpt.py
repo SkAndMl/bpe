@@ -11,6 +11,7 @@ class ModelConfig:
     n_heads: int
     head_dim: int
     n_blocks: int
+    device: torch.device = "cpu"
     ffn_multiplier: int = 4
 
 class Embedding(nn.Module):
@@ -54,7 +55,7 @@ class MHA(nn.Module):
 
         self.register_buffer(
             "mask",
-            torch.triu(torch.full((cfg.ctx_size, cfg.ctx_size), float('-inf')), diagonal=1)
+            torch.triu(torch.full((1, 1, cfg.ctx_size, cfg.ctx_size), float('-inf')), diagonal=1)
         )
     
     def forward(self, x: Tensor) -> Tensor:
