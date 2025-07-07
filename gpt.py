@@ -117,4 +117,4 @@ class GPT(nn.Module):
             logits = self(x)[:, -1]
             token = torch.argmax(logits, -1).unsqueeze(1)
             x = torch.cat([x, token], dim=1)
-        return self.ln(x)
+        return x
