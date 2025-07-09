@@ -1,0 +1,26 @@
+Step 50 | loss = 5.4017
+Step 100 | loss = 4.7254
+Step 150 | loss = 4.3746
+Step 200 | loss = 4.1702
+Step 250 | loss = 3.9839
+Step 300 | loss = 3.9924
+Step 350 | loss = 3.9883
+Step 400 | loss = 3.8693
+Step 450 | loss = 3.8705
+Step 500 | loss = 3.7784
+Step 500 | val loss = 3.8173 | ppl: 45.4831
+Generation at step 500: I am going to the little girl. She was playing in the garden and she was so excited. She was so excited. She was so excited and she couldn't wait
+Step 550 | loss = 3.8344
+Step 600 | loss = 3.7319
+Step 650 | loss = 3.7745
+Step 700 | loss = 3.5399
+Step 750 | loss = 3.8392
+Step 800 | loss = 3.6860
+Step 850 | loss = 3.7345
+Step 900 | loss = 3.7361
+Step 950 | loss = 3.8400
+Step 1000 | loss = 3.3794
+Step 1000 | val loss = 3.6412 | ppl: 38.1385
+Generation at step 1000: I am going to the beach with a little boy. He was very hungry. He was very sad and he was very sad.
+
+One day, he saw a

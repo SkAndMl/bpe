@@ -1,0 +1,24 @@
+Step 50 | loss = 5.4259
+Step 100 | loss = 4.7356
+Step 150 | loss = 4.6376
+Step 200 | loss = 4.3107
+Step 250 | loss = 3.9779
+Step 300 | loss = 4.1393
+Step 350 | loss = 3.9190
+Step 400 | loss = 3.9436
+Step 450 | loss = 3.9340
+Step 500 | loss = 3.9476
+Step 500 | val loss = 3.9497 | ppl: 51.9180
+Generation at step 500: I am going to a little girl named Lily. She liked to play with her mom, Lily and play with her mom, Lily. Lily and Lily and Lily and Lily
+Step 550 | loss = 3.9477
+Step 600 | loss = 3.7012
+Step 650 | loss = 4.0928
+Step 700 | loss = 3.9192
+Step 750 | loss = 3.8308
+Step 800 | loss = 3.7772
+Step 850 | loss = 3.9857
+Step 900 | loss = 3.9756
+Step 950 | loss = 3.7148
+Step 1000 | loss = 3.7726
+Step 1000 | val loss = 3.8680 | ppl: 47.8486
+Generation at step 1000: I am going to a little little boy named Timmy. Timmy was playing with his friends. One day, Timmy was playing in his friends. Timmy was playing with his friends

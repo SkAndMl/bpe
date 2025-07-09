@@ -1,0 +1,25 @@
+Step 50 | loss = 5.2054
+Step 100 | loss = 4.3416
+Step 150 | loss = 4.0876
+Step 200 | loss = 3.8397
+Step 250 | loss = 3.8386
+Step 300 | loss = 3.7046
+Step 350 | loss = 3.6298
+Step 400 | loss = 3.4838
+Step 450 | loss = 3.5950
+Step 500 | loss = 3.5339
+Step 500 | val loss = 3.4494 | ppl: 31.4808
+Generation at step 500: I am going to the girl. She was very happy and she had a big punt. She liked to play with her mom. She had a big pu
+Step 550 | loss = 3.4764
+Step 600 | loss = 3.3438
+Step 650 | loss = 3.3745
+Step 700 | loss = 3.2325
+Step 750 | loss = 3.2640
+Step 800 | loss = 3.2570
+Step 850 | loss = 3.2374
+Step 900 | loss = 3.2383
+Step 950 | loss = 3.2280
+Step 1000 | loss = 3.3126
+Step 1000 | val loss = 3.1400 | ppl: 23.1050
+Generation at step 1000: I am going to the little girl. She was very excited and she had a special. She was very excited and she had a special. She was very excited.
+

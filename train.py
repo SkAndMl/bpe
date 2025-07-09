@@ -2,6 +2,7 @@ import torch
 import random
 import os
 import time
+import math
 
 from torch import nn
 from torch.nn import functional as F
@@ -10,8 +11,6 @@ from bpe_py.bpe import BPE
 from typing import Tuple
 from torch.amp import autocast
 from argparse import ArgumentParser
-
-
 
 class DataLoader:
 
@@ -59,31 +58,34 @@ def train(cfg: ModelConfig, tokenizer: BPE, bsz: int):
     gpt = GPT(cfg).to(cfg.device)
     train_dl = DataLoader("data/tinystories/train.txt", tokenizer, bsz, cfg.ctx_size)
     val_dl = DataLoader("data/tinystories/test.txt", tokenizer, bsz, cfg.ctx_size)
-
-    loss_fn = nn.CrossEntropyLoss(ignore_index=tokenizer.sp_token_to_id["<|endoftext|>"])
+    
     optimizer = torch.optim.AdamW(gpt.parameters(), lr=3e-4)
-
     use_amp = cfg.device.type == "mps"
 
+    pad_token_id = tokenizer.sp_token_to_id["<|endoftext|>"]
+
     @torch.inference_mode()
-    def evaluate() -> float:
-        val_loss = 0
+    def evaluate() -> Tuple[float]:
+        total_loss, total_tokens = 0, 0
         for x, y in val_dl:
             x, y = x.to(cfg.device), y.to(cfg.device)
             with autocast(device_type=cfg.device.type, dtype=torch.float16 if use_amp else torch.float32):
                 logits: torch.Tensor = gpt(x) # bsz, seq_len, vocab_size
                 logits = logits.view(-1, logits.size(-1))
-                loss: torch.Tensor = loss_fn(logits, y.view(-1))
-            val_loss += loss.item()
-        
-        return val_loss / len(val_dl)
+                loss: torch.Tensor = F.cross_entropy(logits, y.view(-1), ignore_index=pad_token_id, reduction="none").reshape_as(y) # bsz, seq_len
 
+            mask: torch.Tensor = (y != pad_token_id)
+            total_loss += (loss * mask).sum().item()
+            total_tokens += mask.sum().item()
+        
+        avg_loss = total_loss / total_tokens
+        ppl = math.exp(avg_loss)
+        return avg_loss, ppl
 
     log_file = open(f"log_{cfg.vocab_size}.txt", "w")
     log_step = 50
-    generate_step = 500
-    evaluate_step = 100
-    stop_step = 2000
+    evaluate_step = 500
+    stop_step = 1000
     
     start_time = time.time()
     for step, (x, y) in enumerate(train_dl):
@@ -95,7 +97,7 @@ def train(cfg: ModelConfig, tokenizer: BPE, bsz: int):
         with autocast(device_type=cfg.device.type, dtype=torch.float16 if use_amp else torch.float32):
             logits: torch.Tensor = gpt(x) # bsz, seq_len, vocab_size
             logits = logits.view(-1, logits.size(-1))
-            loss: torch.Tensor = loss_fn(logits, y.view(-1))
+            loss: torch.Tensor = F.cross_entropy(logits, y.view(-1), ignore_index=pad_token_id)
 
         optimizer.zero_grad()
         loss.backward()
@@ -104,20 +106,24 @@ def train(cfg: ModelConfig, tokenizer: BPE, bsz: int):
         if (step + 1) % log_step == 0:
             to_log = f"Step {step+1} | loss = {loss.item():.4f}"
             log_file.write(to_log + "\n")
+            log_file.flush()
             print(to_log)
-        if (step + 1) % generate_step == 0 or step == len(train_dl) - 1:
+
+        if (step + 1) % evaluate_step == 0 or step == len(train_dl) - 1 or step == stop_step - 1:
+            val_loss, ppl = evaluate()
+            to_log = f"Step {step+1} | val loss = {val_loss:.4f} | ppl: {ppl:.4f}"
+            log_file.write(to_log + "\n")
+            log_file.flush()
+            print(to_log)
+
             with torch.no_grad():
                 x = torch.tensor([tokenizer.encode("I am going to")]).to(cfg.device)
                 out = gpt.generate(x, max_new_tokens=30)
                 decoded_str = tokenizer.decode(out.detach().tolist()[0])
                 to_log = f"Generation at step {step+1}: {decoded_str}"
                 log_file.write(to_log + "\n")
+                log_file.flush()
                 print(to_log)
-        if (step + 1) % evaluate_step == 0:
-            val_loss = evaluate()
-            to_log = f"Step {step+1} | val loss = {val_loss:.4f}"
-            log_file.write(to_log + "\n")
-            print(to_log)
 
     log_file.close()
 
@@ -145,4 +151,4 @@ if __name__ == "__main__":
     cfg.device = device
     print(f"running on {device}")
 
-    train(cfg, tokenizer, bsz)    
+    train(cfg, tokenizer, bsz) 
